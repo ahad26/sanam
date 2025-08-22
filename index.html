@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stock News Dashboard</title>
+  <!-- Tailwind via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Simple skeleton shimmer */
+    .skeleton { position: relative; overflow: hidden; }
+    .skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(0,0,0,.06), transparent); animation: shimmer 1.5s infinite; }
+    @keyframes shimmer { 100% { transform: translateX(100%);} }
+    .hide-scrollbar::-webkit-scrollbar { display:none; }
+    .hide-scrollbar { scrollbar-width: none; }
+    .dragging { opacity: .7; }
+    .drag-over { outline: 2px dashed #60a5fa; outline-offset: 2px; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+  <header class="sticky top-0 z-30 bg-white/80 backdrop-blur shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-7 h-7 text-blue-600"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 14.59l3.3-3.3a1 1 0 10-1.4-1.42l-2.6 2.59-1.3-1.3a1 1 0 10-1.4 1.42l2 2a1 1 0 001.4 0z"/></svg>
+      <h1 class="text-xl font-semibold">Stock News Dashboard</h1>
+      <div class="ml-auto flex items-center gap-2">
+        <label class="hidden sm:flex items-center gap-2 text-sm bg-gray-100 rounded-lg px-2 py-1">
+          <span>Auto‑refresh (s)</span>
+          <input id="autoRefreshSecInput" type="number" min="0" step="5" class="w-20 rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm bg-white" />
+        </label>
+        <label class="hidden md:flex items-center gap-2 text-sm bg-gray-100 rounded-lg px-2 py-1">
+          <input id="autoScrollToggle" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+          <span>Auto‑scroll</span>
+          <input id="scrollSpeedInput" type="number" min="10" max="300" step="10" class="w-20 rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm bg-white" title="px/sec" />
+          <span class="text-gray-500">px/s</span>
+        </label>
+        <button id="refreshBtn" class="px-3 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
+        <button id="settingsBtn" class="px-3 py-2 text-sm rounded-lg bg-gray-100 hover:bg-gray-200">Settings</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Settings modal -->
+  <div id="settingsModal" class="hidden fixed inset-0 z-40 grid place-items-center bg-black/30 p-4">
+    <div class="w-full max-w-xl rounded-2xl bg-white shadow-xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold">Settings</h2>
+        <button id="closeSettings" class="p-2 hover:bg-gray-100 rounded-full" aria-label="Close settings">✕</button>
+      </div>
+      <div class="space-y-4">
+        <label class="block">
+          <span class="text-sm font-medium">API Base URL</span>
+          <input id="apiBaseInput" type="url" class="mt-1 w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500" placeholder="http://localhost:8000" />
+          <p class="text-xs text-gray-500 mt-1">Your FastAPI base. We call <code>/tickers</code> and <code>/news</code> on this host.</p>
+        </label>
+        <label class="inline-flex items-center gap-2">
+          <input id="demoToggle" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+          <span class="text-sm">Use demo data (no backend required)</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <span class="text-sm">Auto‑refresh (s)</span>
+          <input id="autoRefreshSecInputModal" type="number" min="0" step="5" class="w-28 rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm bg-white" />
+        </label>
+        <div class="flex items-center gap-2">
+          <label class="text-sm">Auto‑scroll lanes</label>
+          <input id="autoScrollToggleModal" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+          <label class="text-sm ml-3">Speed</label>
+          <input id="scrollSpeedInputModal" type="number" min="10" max="300" step="10" class="w-28 rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm bg-white" />
+          <span class="text-xs text-gray-500">px/sec</span>
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-2">
+        <button id="saveSettings" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <!-- Global Filters -->
+    <section class="grid lg:grid-cols-4 gap-4 mb-6">
+      <div class="lg:col-span-2">
+        <label class="block text-sm font-medium">Add stock lane</label>
+        <div class="mt-1 flex gap-2 items-start">
+          <div class="relative">
+            <input id="addSymbolInput" class="w-40 rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500" placeholder="e.g., NVDA" autocomplete="off" />
+            <div id="addSymbolSuggest" class="absolute z-30 mt-1 w-56 bg-white border rounded-lg shadow hidden max-h-64 overflow-auto"></div>
+          </div>
+          <button id="addLaneBtn" class="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Add</button>
+          <select id="historySelect" class="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500">
+            <option value="">History…</option>
+          </select>
+        </div>
+        <p class="text-xs text-gray-500 mt-1">Keeps a dropdown history of previously added stocks.</p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium">From</label>
+        <input id="fromInput" type="date" class="mt-1 w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"/>
+      </div>
+      <div>
+        <label class="block text-sm font-medium">To</label>
+        <input id="toInput" type="date" class="mt-1 w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"/>
+      </div>
+    </section>
+
+    <div class="flex flex-wrap items-center gap-2 mb-6">
+      <button data-quick="1d" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">1D</button>
+      <button data-quick="5d" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">5D</button>
+      <button data-quick="1m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">1M</button>
+      <button data-quick="3m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">3M</button>
+      <div class="ml-auto flex items-center gap-2">
+        <label class="text-sm">Sentiment</label>
+        <select id="sentimentFilter" class="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm">
+          <option value="any">Any</option>
+          <option value="pos">Positive</option>
+          <option value="neg">Negative</option>
+          <option value="neu">Neutral</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Lanes container -->
+    <section id="lanes" class="space-y-8"></section>
+    <div id="statusBar" class="hidden mt-6 text-sm"></div>
+  </main>
+
+  <footer class="max-w-7xl mx-auto px-4 py-8 text-xs text-gray-500">
+    <p>⚠️ Respect site terms and copyright. Store metadata + short extracts; link to originals.</p>
+  </footer>
+
+  <script>
+    const els = {
+      apiBaseInput: document.getElementById('apiBaseInput'),
+      demoToggle: document.getElementById('demoToggle'),
+      settingsModal: document.getElementById('settingsModal'),
+      settingsBtn: document.getElementById('settingsBtn'),
+      closeSettings: document.getElementById('closeSettings'),
+      saveSettings: document.getElementById('saveSettings'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      fromInput: document.getElementById('fromInput'),
+      toInput: document.getElementById('toInput'),
+      sentimentFilter: document.getElementById('sentimentFilter'),
+      statusBar: document.getElementById('statusBar'),
+      lanes: document.getElementById('lanes'),
+      addSymbolInput: document.getElementById('addSymbolInput'),
+      addLaneBtn: document.getElementById('addLaneBtn'),
+      historySelect: document.getElementById('historySelect'),
+      addSymbolSuggest: document.getElementById('addSymbolSuggest'),
+      autoRefreshSecInput: document.getElementById('autoRefreshSecInput'),
+      autoScrollToggle: document.getElementById('autoScrollToggle'),
+      scrollSpeedInput: document.getElementById('scrollSpeedInput'),
+      autoRefreshSecInputModal: document.getElementById('autoRefreshSecInputModal'),
+      autoScrollToggleModal: document.getElementById('autoScrollToggleModal'),
+      scrollSpeedInputModal: document.getElementById('scrollSpeedInputModal'),
+    };
+
+    const state = {
+      apiBase: localStorage.getItem('apiBase') || 'http://localhost:8000',
+      demo: JSON.parse(localStorage.getItem('demo') || 'true'),
+      lanes: JSON.parse(localStorage.getItem('lanes') || '["AAPL","NVDA"]'),
+      history: JSON.parse(localStorage.getItem('symbolHistory') || '[]'),
+      autoRefreshSec: parseInt(localStorage.getItem('autoRefreshSec') || '60', 10),
+      autoScroll: JSON.parse(localStorage.getItem('autoScroll') || 'true'),
+      scrollPxPerSec: parseInt(localStorage.getItem('scrollPxPerSec') || '80', 10),
+      scrollers: {},
+      refreshTimer: null,
+    };
+
+    const demoSymbols = ['AAPL','NVDA','MSFT','AMZN','TSLA','GOOGL','META','AMD','INTC'];
+
+    // Demo dataset for multiple symbols
+    const demoBySymbol = {
+      AAPL: [
+        { title: 'Apple announces new services initiative', url: 'https://example.com/aapl-1', published_at: new Date(Date.now()-3600e3).toISOString(), source: 'DemoWire', summary: 'Apple Inc. — launching a new service bundle focused on AI features across devices.', sentiment: 0.42 },
+        { title: 'Analyst downgrades Apple on supply chain risks', url: 'https://example.com/aapl-2', published_at: new Date(Date.now()-28*3600e3).toISOString(), source: 'DemoStreet', summary: 'Analyst sees potential headwinds for iPhone margins in 2H.', sentiment: -0.31 },
+        { title: 'Apple files 8‑K regarding executive changes', url: 'https://example.com/aapl-3', published_at: new Date(Date.now()-3*86400e3).toISOString(), source: 'SEC', summary: 'Company discloses executive transition details in an 8‑K filing.', sentiment: 0.0 },
+      ],
+      NVDA: [
+        { title: 'Nvidia unveils new GPU architecture', url: 'https://example.com/nvda-1', published_at: new Date(Date.now()-2*3600e3).toISOString(), source: 'DemoWire', summary: 'Next‑gen performance targets inference and training efficiency.', sentiment: 0.55 },
+        { title: 'Supply chain update for Nvidia partners', url: 'https://example.com/nvda-2', published_at: new Date(Date.now()-2*86400e3).toISOString(), source: 'PartnerBlog', summary: 'Vendors report improved lead times into Q4.', sentiment: 0.18 },
+      ],
+      MSFT: [
+        { title: 'Microsoft announces Copilot updates', url: 'https://example.com/msft-1', published_at: new Date(Date.now()-6*3600e3).toISOString(), source: 'DemoWire', summary: 'Rollout includes new enterprise controls and analytics.', sentiment: 0.22 },
+      ],
+    };
+
+    // ---------- Utilities ----------
+    function formatDate(iso) { try { return new Date(iso).toLocaleString(); } catch { return iso; } }
+    function relTime(iso) {
+      const d = new Date(iso).getTime(); const s = Math.floor((Date.now() - d)/1000);
+      if (s < 60) return `${s}s ago`; const m = Math.floor(s/60); if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m/60); if (h < 24) return `${h}h ago`; const dd = Math.floor(h/24); return `${dd}d ago`;
+    }
+    function sentimentBadge(v) {
+      if (v == null) return '<span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs">Unrated</span>';
+      if (v > 0.15) return '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs">Positive</span>';
+      if (v < -0.15) return '<span class="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs">Negative</span>';
+      return '<span class="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs">Neutral</span>';
+    }
+    function withinRange(iso, from, to) {
+      const t = new Date(iso).setHours(0,0,0,0);
+      if (from && t < from.setHours(0,0,0,0)) return false;
+      if (to && t > to.setHours(23,59,59,999)) return false; return true;
+    }
+    function setStatus(text, type='info'){
+      const el = els.statusBar; el.textContent = text; el.className = '';
+      el.classList.add('mt-6','text-sm','px-3','py-2','rounded-lg');
+      if (type==='info') el.classList.add('bg-blue-50','text-blue-700');
+      if (type==='error') el.classList.add('bg-red-50','text-red-700');
+      if (type==='ok') el.classList.add('bg-green-50','text-green-700');
+      el.classList.remove('hidden');
+    }
+    function clearStatus(){ els.statusBar.classList.add('hidden'); }
+
+    function saveLanes(){ localStorage.setItem('lanes', JSON.stringify(state.lanes)); }
+    function saveHistory(){ localStorage.setItem('symbolHistory', JSON.stringify(state.history)); buildHistoryDropdown(); }
+    function pushHistory(symbol){ const sym = symbol.toUpperCase(); state.history = [sym, ...state.history.filter(s => s !== sym)]; if (state.history.length > 15) state.history = state.history.slice(0,15); saveHistory(); }
+    function buildHistoryDropdown(){ els.historySelect.innerHTML = '<option value="">History…</option>' + state.history.map(s=>`<option value="${s}">${s}</option>`).join(''); }
+
+    function debounce(fn, ms){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); }; }
+
+    // ---------- API ----------
+    async function fetchNews(symbol){
+      const from = els.fromInput.value ? new Date(els.fromInput.value) : null; const to = els.toInput.value ? new Date(els.toInput.value) : null;
+      if (state.demo){
+        const pool = demoBySymbol[symbol] || []; let items = pool.filter(d => withinRange(d.published_at, from, to));
+        const f = els.sentimentFilter.value; if (f !== 'any'){
+          items = items.filter(x => { if (x.sentiment == null) return false; if (f==='pos') return x.sentiment > 0.15; if (f==='neg') return x.sentiment < -0.15; if (f==='neu') return x.sentiment >= -0.15 && x.sentiment <= 0.15; });
+        }
+        items.sort((a,b) => new Date(b.published_at) - new Date(a.published_at)); return items;
+      }
+      const url = new URL(`${state.apiBase}/news`); url.searchParams.set('symbol', symbol); url.searchParams.set('limit', '100');
+      const r = await fetch(url); if (!r.ok) throw new Error(`API error ${r.status}`);
+      let items = await r.json(); let filtered = items.filter(d => withinRange(d.published_at, from, to));
+      const f = els.sentimentFilter.value; if (f !== 'any'){
+        filtered = filtered.filter(x => { if (x.sentiment == null) return false; if (f==='pos') return x.sentiment > 0.15; if (f==='neg') return x.sentiment < -0.15; if (f==='neu') return x.sentiment >= -0.15 && x.sentiment <= 0.15; });
+      }
+      return filtered;
+    }
+
+    async function fetchTickerSuggestions(q){
+      q = (q||'').trim(); if (!q) return [];
+      if (state.demo){
+        const pool = Array.from(new Set([...demoSymbols, ...state.history]));
+        return pool.filter(s=> s.toLowerCase().startsWith(q.toLowerCase())).slice(0,12).map(s=>({symbol:s, name:s}));
+      }
+      try {
+        const ctl = new AbortController(); setTimeout(()=>ctl.abort(), 6000);
+        const r = await fetch(`${state.apiBase}/tickers?q=${encodeURIComponent(q)}`, {signal: ctl.signal});
+        if (!r.ok) throw new Error('tickers fetch failed');
+        const data = await r.json(); return data.map(t=>({symbol:t.symbol, name:t.name})).slice(0,12);
+      } catch { return []; }
+    }
+
+    function renderSuggestList(container, items, onPick){
+      container.innerHTML = '';
+      if (!items.length){ container.classList.add('hidden'); return; }
+      items.forEach(item=>{
+        const btn = document.createElement('button');
+        btn.className = 'w-full text-left px-3 py-2 hover:bg-gray-50';
+        btn.innerHTML = `<span class="font-medium">${item.symbol}</span> <span class="text-gray-500">· ${item.name}</span>`;
+        btn.addEventListener('click', ()=>{ onPick(item.symbol); container.classList.add('hidden'); });
+        container.appendChild(btn);
+      });
+      container.classList.remove('hidden');
+    }
+
+    // ---------- Lane rendering ----------
+    function laneTemplate(symbol, idx){
+      const id = `lane-${idx}`;
+      return `
+        <section id="${id}" class="bg-white border rounded-2xl" draggable="true" data-index="${idx}">
+          <div class="flex items-center gap-2 p-4 border-b cursor-grab">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="text-base font-semibold"><span class="text-gray-500">$</span><span id="${id}-label">${symbol}</span></h3>
+              <div class="relative">
+                <input id="${id}-input" value="${symbol}" class="w-28 rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm" aria-label="Change symbol" autocomplete="off" />
+                <div id="${id}-suggest" class="absolute z-20 mt-1 w-56 bg-white border rounded-lg shadow hidden max-h-64 overflow-auto"></div>
+              </div>
+              <select id="${id}-history" class="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm"><option value="">History…</option></select>
+              <button id="${id}-apply" class="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-sm">Apply</button>
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+              <button id="${id}-left" class="px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200" title="Scroll left">◂</button>
+              <button id="${id}-right" class="px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200" title="Scroll right">▸</button>
+              <button id="${id}-remove" class="px-2 py-1 rounded-lg bg-red-50 text-red-700 hover:bg-red-100" title="Remove lane">Remove</button>
+            </div>
+          </div>
+          <div id="${id}-row" class="overflow-x-auto hide-scrollbar">
+            <div class="flex gap-3 p-4 min-h-[120px]" id="${id}-cards"></div>
+          </div>
+        </section>`;
+    }
+
+    function renderArticleCard(a){
+      const dateStr = a.published_at ? `${formatDate(a.published_at)} · ${relTime(a.published_at)}` : '—';
+      return `
+        <article class="inline-block align-top min-w-[320px] max-w-[380px] rounded-xl border bg-white p-4 shadow-sm">
+          <a href="${a.url}" target="_blank" rel="noopener noreferrer" class="text-base font-semibold text-blue-700 hover:underline">${a.title}</a>
+          <div class="mt-1 text-xs text-gray-500">${a.source || '—'} · ${dateStr}</div>
+          <p class="mt-2 text-sm text-gray-700 line-clamp-4">${a.summary || ''}</p>
+        </article>`;
+    }
+
+    function renderSkeletonCards(container, n=6){
+      container.innerHTML = '';
+      for (let i=0;i<n;i++){
+        const div = document.createElement('div');
+        div.className = 'inline-block align-top min-w-[320px] max-w-[380px] rounded-xl border bg-white p-4 skeleton';
+        div.innerHTML = `
+          <div class='h-5 w-2/3 bg-gray-200 rounded'></div>
+          <div class='h-4 w-1/3 bg-gray-200 rounded mt-2'></div>
+          <div class='h-4 w-full bg-gray-200 rounded mt-3'></div>
+          <div class='h-4 w-5/6 bg-gray-200 rounded mt-2'></div>`;
+        container.appendChild(div);
+      }
+    }
+
+    async function loadLane(symbol, idx){
+      const cards = document.getElementById(`lane-${idx}-cards`);
+      renderSkeletonCards(cards);
+      try{
+        const items = await fetchNews(symbol);
+        cards.innerHTML = items.map(renderArticleCard).join('');
+        setStatus(`Loaded ${items.length} article(s) for ${symbol}.`, 'ok');
+      }catch(err){
+        cards.innerHTML = `<div class='text-sm text-red-700 bg-red-50 p-3 rounded-lg'>Failed to fetch news for ${symbol}: ${err.message}</div>`;
+        setStatus(`Fetch failed for ${symbol}: ${err.message}`, 'error');
+      }
+    }
+
+    function attachLaneHandlers(symbol, idx){
+      // history in per-lane dropdown
+      const histEl = document.getElementById(`lane-${idx}-history`);
+      histEl.innerHTML = '<option value="">History…</option>' + state.history.map(s=>`<option value="${s}">${s}</option>`).join('');
+      histEl.addEventListener('change', (e)=>{ const val = e.target.value; if (!val) return; document.getElementById(`lane-${idx}-input`).value = val; });
+
+      // backend-powered suggestions per lane
+      const inputEl = document.getElementById(`lane-${idx}-input`);
+      const suggEl = document.getElementById(`lane-${idx}-suggest`);
+      const doSuggest = debounce(async ()=>{
+        const q = inputEl.value.trim(); if (!q) { suggEl.classList.add('hidden'); return; }
+        const items = await fetchTickerSuggestions(q);
+        renderSuggestList(suggEl, items, (sym)=>{ inputEl.value = sym; });
+      }, 200);
+      inputEl.addEventListener('input', doSuggest);
+      inputEl.addEventListener('focus', doSuggest);
+      document.addEventListener('click', (e)=>{ if (!suggEl.contains(e.target) && e.target !== inputEl) suggEl.classList.add('hidden'); });
+
+      document.getElementById(`lane-${idx}-apply`).addEventListener('click', ()=>{
+        const val = inputEl.value.trim().toUpperCase();
+        if (!val) return;
+        state.lanes[idx] = val; saveLanes();
+        document.getElementById(`lane-${idx}-label`).textContent = val;
+        pushHistory(val);
+        loadLane(val, idx);
+      });
+      document.getElementById(`lane-${idx}-remove`).addEventListener('click', ()=>{ state.lanes.splice(idx,1); saveLanes(); drawLanes(); });
+
+      const row = document.getElementById(`lane-${idx}-row`);
+      document.getElementById(`lane-${idx}-left`).addEventListener('click', ()=>{ row.scrollBy({left: -360, behavior:'smooth'}); });
+      document.getElementById(`lane-${idx}-right`).addEventListener('click', ()=>{ row.scrollBy({left: 360, behavior:'smooth'}); });
+
+      // start/refresh auto scroller for this lane
+      initAutoScroller(idx);
+
+      // drag & drop reordering
+      const laneEl = document.getElementById(`lane-${idx}`);
+      laneEl.addEventListener('dragstart', (e)=>{ laneEl.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)); });
+      laneEl.addEventListener('dragend', ()=> laneEl.classList.remove('dragging'));
+      laneEl.addEventListener('dragover', (e)=>{ e.preventDefault(); laneEl.classList.add('drag-over'); e.dataTransfer.dropEffect = 'move'; });
+      laneEl.addEventListener('dragleave', ()=> laneEl.classList.remove('drag-over'));
+      laneEl.addEventListener('drop', (e)=>{
+        e.preventDefault(); laneEl.classList.remove('drag-over');
+        const from = parseInt(e.dataTransfer.getData('text/plain'), 10); const to = idx;
+        if (isNaN(from) || from === to) return;
+        const item = state.lanes.splice(from,1)[0]; state.lanes.splice(to,0,item);
+        saveLanes(); drawLanes();
+      });
+    }
+
+    function drawLanes(){
+      // stop any running scrollers
+      Object.values(state.scrollers).forEach(id=> cancelAnimationFrame(id));
+      state.scrollers = {};
+
+      els.lanes.innerHTML = state.lanes.map((sym, i)=>laneTemplate(sym, i)).join('');
+      state.lanes.forEach((sym, i)=>{ attachLaneHandlers(sym, i); loadLane(sym, i); });
+    }
+
+    // ---------- Auto scrollers ----------
+    function initAutoScroller(idx){
+      const row = document.getElementById(`lane-${idx}-row`);
+      let last = 0;
+      function step(ts){
+        if (!state.autoScroll){ state.scrollers[idx] = requestAnimationFrame(step); return; }
+        if (!last) last = ts; const dt = (ts - last)/1000; last = ts;
+        // pause on hover
+        if (row.matches(':hover')) { state.scrollers[idx] = requestAnimationFrame(step); return; }
+        const inc = state.scrollPxPerSec * dt;
+        row.scrollLeft += inc;
+        if (row.scrollLeft + row.clientWidth + 1 >= row.scrollWidth) { row.scrollLeft = 0; }
+        state.scrollers[idx] = requestAnimationFrame(step);
+      }
+      state.scrollers[idx] = requestAnimationFrame(step);
+    }
+
+    // ---------- Auto refresh ----------
+    function applyAutoRefresh(sec){
+      if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = null; }
+      if (!sec || sec <= 0) return;
+      state.refreshTimer = setInterval(()=> { drawLanes(); }, sec * 1000);
+    }
+
+    // ---------- Settings Modal ----------
+    function openSettings() {
+      els.apiBaseInput.value = state.apiBase; els.demoToggle.checked = state.demo; els.settingsModal.classList.remove('hidden');
+      els.autoRefreshSecInputModal.value = state.autoRefreshSec; els.autoScrollToggleModal.checked = state.autoScroll; els.scrollSpeedInputModal.value = state.scrollPxPerSec;
+    }
+    function closeSettings() { els.settingsModal.classList.add('hidden'); }
+    document.getElementById('settingsBtn').addEventListener('click', openSettings);
+    document.getElementById('closeSettings').addEventListener('click', closeSettings);
+    document.getElementById('saveSettings').addEventListener('click', () => {
+      state.apiBase = els.apiBaseInput.value || state.apiBase; state.demo = !!els.demoToggle.checked;
+      state.autoRefreshSec = parseInt(els.autoRefreshSecInputModal.value || '0',10);
+      state.autoScroll = !!els.autoScrollToggleModal.checked;
+      state.scrollPxPerSec = parseInt(els.scrollSpeedInputModal.value || '80',10);
+      // persist
+      localStorage.setItem('apiBase', state.apiBase);
+      localStorage.setItem('demo', JSON.stringify(state.demo));
+      localStorage.setItem('autoRefreshSec', String(state.autoRefreshSec));
+      localStorage.setItem('autoScroll', JSON.stringify(state.autoScroll));
+      localStorage.setItem('scrollPxPerSec', String(state.scrollPxPerSec));
+      // reflect in header controls
+      els.autoRefreshSecInput.value = state.autoRefreshSec;
+      els.autoScrollToggle.checked = state.autoScroll;
+      els.scrollSpeedInput.value = state.scrollPxPerSec;
+      closeSettings();
+      applyAutoRefresh(state.autoRefreshSec);
+      drawLanes();
+    });
+
+    // ---------- Quick date pills / global filters ----------
+    document.querySelectorAll('.quick-btn').forEach(btn => btn.addEventListener('click', () => {
+      const now = new Date(); let start = new Date();
+      const span = btn.dataset.quick;
+      if (span === '1d') start.setDate(now.getDate() - 1);
+      if (span === '5d') start.setDate(now.getDate() - 5);
+      if (span === '1m') start.setMonth(now.getMonth() - 1);
+      if (span === '3m') start.setMonth(now.getMonth() - 3);
+      els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+      drawLanes();
+    }));
+    els.fromInput.addEventListener('change', drawLanes);
+    els.toInput.addEventListener('change', drawLanes);
+    els.sentimentFilter.addEventListener('change', drawLanes);
+
+    // ---------- Add lanes & history + suggestions ----------
+    function addLaneFrom(symbol){
+      const sym = (symbol || els.addSymbolInput.value || '').toUpperCase().trim(); if (!sym) return;
+      if (!state.lanes.includes(sym)){ state.lanes.push(sym); saveLanes(); }
+      pushHistory(sym); els.addSymbolInput.value = ''; drawLanes();
+    }
+    els.addLaneBtn.addEventListener('click', ()=> addLaneFrom());
+    els.addSymbolInput.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); addLaneFrom(); } });
+
+    const suggestGlobal = debounce(async ()=>{
+      const q = els.addSymbolInput.value.trim(); if (!q){ els.addSymbolSuggest.classList.add('hidden'); return; }
+      const items = await fetchTickerSuggestions(q); renderSuggestList(els.addSymbolSuggest, items, (sym)=>{ els.addSymbolInput.value = sym; els.addSymbolSuggest.classList.add('hidden'); });
+    }, 200);
+    els.addSymbolInput.addEventListener('input', suggestGlobal);
+    els.addSymbolInput.addEventListener('focus', suggestGlobal);
+    document.addEventListener('click', (e)=>{ if (!els.addSymbolSuggest.contains(e.target) && e.target !== els.addSymbolInput) els.addSymbolSuggest.classList.add('hidden'); });
+
+    els.historySelect.addEventListener('change', (e)=>{ if (e.target.value) addLaneFrom(e.target.value); });
+
+    // ---------- Init ----------
+    (function init(){
+      els.apiBaseInput.value = state.apiBase; els.demoToggle.checked = state.demo;
+      els.autoRefreshSecInput.value = state.autoRefreshSec; els.autoScrollToggle.checked = state.autoScroll; els.scrollSpeedInput.value = state.scrollPxPerSec;
+      // Default range: last 5 days
+      const now = new Date(); const start = new Date(); start.setDate(now.getDate()-5);
+      els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+      buildHistoryDropdown();
+      applyAutoRefresh(state.autoRefreshSec);
+      drawLanes();
+    })();
+
+    document.getElementById('refreshBtn').addEventListener('click', drawLanes);
+
+    // sync header controls live
+    els.autoRefreshSecInput.addEventListener('change', ()=>{ state.autoRefreshSec = parseInt(els.autoRefreshSecInput.value || '0',10); localStorage.setItem('autoRefreshSec', String(state.autoRefreshSec)); applyAutoRefresh(state.autoRefreshSec); });
+    els.autoScrollToggle.addEventListener('change', ()=>{ state.autoScroll = !!els.autoScrollToggle.checked; localStorage.setItem('autoScroll', JSON.stringify(state.autoScroll)); });
+    els.scrollSpeedInput.addEventListener('change', ()=>{ state.scrollPxPerSec = parseInt(els.scrollSpeedInput.value || '80',10); localStorage.setItem('scrollPxPerSec', String(state.scrollPxPerSec)); });
+  </script>
+</body>
+</html>
