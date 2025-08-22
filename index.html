@@ -176,16 +176,30 @@
 
     const state = {
       apiBase: localStorage.getItem('apiBase') || 'http://localhost:8000',
+      demo: JSON.parse(localStorage.getItem('demo') || 'true'),
       lanes: JSON.parse(localStorage.getItem('lanes') || '["AAPL","NVDA"]'),
       history: JSON.parse(localStorage.getItem('symbolHistory') || '[]'),
       autoRefreshSec: parseInt(localStorage.getItem('autoRefreshSec') || '60', 10),
       autoScroll: JSON.parse(localStorage.getItem('autoScroll') || 'true'),
       scrollPxPerSec: parseInt(localStorage.getItem('scrollPxPerSec') || '80', 10),
-      newsapiKey: localStorage.getItem('newsapiKey') || '',
-      finnhubKey: localStorage.getItem('finnhubKey') || '',
-      yahooProxy: localStorage.getItem('yahooProxy') || '',
       scrollers: {},
       refreshTimer: null,
+      relativeWindowMs: null,
+    };
+
+    // Global error surfacing so buttons don't seem dead
+    window.addEventListener('error', (e) => {
+      try {
+        const sb = document.getElementById('statusBar'); if (sb){ sb.textContent = 'Error: ' + (e.message || 'Script error'); sb.className='mt-6 text-sm px-3 py-2 rounded-lg bg-red-50 text-red-700'; sb.classList.remove('hidden'); }
+      } catch(_){}
+      console.error('Global error:', e.error || e.message);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      try {
+        const sb = document.getElementById('statusBar'); if (sb){ sb.textContent = 'Error: ' + (e.reason && (e.reason.message || String(e.reason)) || 'Promise rejected'); sb.className='mt-6 text-sm px-3 py-2 rounded-lg bg-red-50 text-red-700'; sb.classList.remove('hidden'); }
+      } catch(_){}
+      console.error('Unhandled rejection:', e.reason);
+    });
       relativeWindowMs: null,
     };
 
@@ -209,7 +223,7 @@
       if (to && t > new Date(to).setHours(23,59,59,999)) return false;
       return true;
     }
-    function isInActiveRange(iso, from, to){
+    function withinRange(iso, from, to){
       try {
         const ts = new Date(iso).getTime();
         if (isNaN(ts)) return false;
@@ -371,7 +385,7 @@
         try{
           const items = await p();
           // client-side filters
-          let filtered = items.filter(d => !from || !d.published_at || isInActiveRange(d.published_at, from, to));
+          let filtered = items.filter(d => !from || !d.published_at || withinRange(d.published_at, from, to));
           const f = els.sentimentFilter.value; if (f !== 'any'){
             filtered = filtered.filter(x => {
               if (x.sentiment == null) return false;
@@ -584,29 +598,24 @@
     // ---------- Quick date pills / global filters ----------
     document.querySelectorAll('.quick-btn').forEach(btn => btn.addEventListener('click', () => {
       const now = new Date();
+      let start = new Date(now);
       const span = btn.dataset.quick;
-      state.relativeWindowMs = null;
-      // clear date inputs by default for time-based windows
-      els.fromInput.value = '';
-      els.toInput.value = '';
       if (span.endsWith('m')){
-        const mins = parseInt(span.replace('m',''), 10);
-        if (!isNaN(mins)) state.relativeWindowMs = mins * 60 * 1000;
+        const mins = parseInt(span, 10) || 0; start.setMinutes(now.getMinutes() - mins);
       } else if (span.endsWith('h')){
-        const hrs = parseInt(span.replace('h',''), 10);
-        if (!isNaN(hrs)) state.relativeWindowMs = hrs * 3600 * 1000;
+        const hrs = parseInt(span, 10) || 0; start.setHours(now.getHours() - hrs);
       } else if (span === '1d'){
-        state.relativeWindowMs = 24 * 3600 * 1000;
+        start.setDate(now.getDate() - 1);
       } else if (span === '5d'){
-        const start = new Date(now); start.setDate(now.getDate() - 5);
-        els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+        start.setDate(now.getDate() - 5);
       } else if (span === '1m'){
-        const start = new Date(now); start.setMonth(now.getMonth() - 1);
-        els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+        start.setMonth(now.getMonth() - 1);
       } else if (span === '3m'){
-        const start = new Date(now); start.setMonth(now.getMonth() - 3);
-        els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+        start.setMonth(now.getMonth() - 3);
       }
+      els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+      // ensure date-range mode
+      if (typeof state !== 'undefined') state.relativeWindowMs = null;
       drawLanes();
     }));
     els.fromInput.addEventListener('change', ()=>{ state.relativeWindowMs = null; drawLanes(); });
