@@ -117,7 +117,12 @@
     </section>
 
     <div class="flex flex-wrap items-center gap-2 mb-6">
-      <button data-quick="1d" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">1D</button>
+      <button data-quick="30m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 30 minutes">30m</button>
+      <button data-quick="60m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 60 minutes">60m</button>
+      <button data-quick="3h" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 3 hours">3h</button>
+      <button data-quick="6h" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 6 hours">6h</button>
+      <button data-quick="12h" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 12 hours">12h</button>
+      <button data-quick="1d" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 1 day">1D</button>
       <button data-quick="5d" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">5D</button>
       <button data-quick="1m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">1M</button>
       <button data-quick="3m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">3M</button>
@@ -181,6 +186,7 @@
       yahooProxy: localStorage.getItem('yahooProxy') || '',
       scrollers: {},
       refreshTimer: null,
+      relativeWindowMs: null,
     };
 
     // ---------- Utilities ----------
@@ -197,9 +203,21 @@
       return '<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs">Neutral</span>';
     }
     function withinRange(iso, from, to) {
-      const t = new Date(iso).setHours(0,0,0,0);
-      if (from && t < from.setHours(0,0,0,0)) return false;
-      if (to && t > to.setHours(23,59,59,999)) return false; return true;
+      const t = new Date(iso).getTime();
+      if (isNaN(t)) return false;
+      if (from && t < new Date(from).setHours(0,0,0,0)) return false;
+      if (to && t > new Date(to).setHours(23,59,59,999)) return false;
+      return true;
+    }
+    function isInActiveRange(iso, from, to){
+      try {
+        const ts = new Date(iso).getTime();
+        if (isNaN(ts)) return false;
+        if (state.relativeWindowMs && state.relativeWindowMs > 0){
+          return (Date.now() - ts) <= state.relativeWindowMs;
+        }
+        return withinRange(iso, from, to);
+      } catch { return false; }
     }
     function setStatus(text, type='info'){
       const el = els.statusBar; el.textContent = text; el.className = '';
@@ -353,7 +371,7 @@
         try{
           const items = await p();
           // client-side filters
-          let filtered = items.filter(d => !from || !d.published_at || withinRange(d.published_at, from, to));
+          let filtered = items.filter(d => !from || !d.published_at || isInActiveRange(d.published_at, from, to));
           const f = els.sentimentFilter.value; if (f !== 'any'){
             filtered = filtered.filter(x => {
               if (x.sentiment == null) return false;
@@ -565,17 +583,34 @@
 
     // ---------- Quick date pills / global filters ----------
     document.querySelectorAll('.quick-btn').forEach(btn => btn.addEventListener('click', () => {
-      const now = new Date(); let start = new Date();
+      const now = new Date();
       const span = btn.dataset.quick;
-      if (span === '1d') start.setDate(now.getDate() - 1);
-      if (span === '5d') start.setDate(now.getDate() - 5);
-      if (span === '1m') start.setMonth(now.getMonth() - 1);
-      if (span === '3m') start.setMonth(now.getMonth() - 3);
-      els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+      state.relativeWindowMs = null;
+      // clear date inputs by default for time-based windows
+      els.fromInput.value = '';
+      els.toInput.value = '';
+      if (span.endsWith('m')){
+        const mins = parseInt(span.replace('m',''), 10);
+        if (!isNaN(mins)) state.relativeWindowMs = mins * 60 * 1000;
+      } else if (span.endsWith('h')){
+        const hrs = parseInt(span.replace('h',''), 10);
+        if (!isNaN(hrs)) state.relativeWindowMs = hrs * 3600 * 1000;
+      } else if (span === '1d'){
+        state.relativeWindowMs = 24 * 3600 * 1000;
+      } else if (span === '5d'){
+        const start = new Date(now); start.setDate(now.getDate() - 5);
+        els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+      } else if (span === '1m'){
+        const start = new Date(now); start.setMonth(now.getMonth() - 1);
+        els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+      } else if (span === '3m'){
+        const start = new Date(now); start.setMonth(now.getMonth() - 3);
+        els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+      }
       drawLanes();
     }));
-    els.fromInput.addEventListener('change', drawLanes);
-    els.toInput.addEventListener('change', drawLanes);
+    els.fromInput.addEventListener('change', ()=>{ state.relativeWindowMs = null; drawLanes(); });
+    els.toInput.addEventListener('change', ()=>{ state.relativeWindowMs = null; drawLanes(); });
     els.sentimentFilter.addEventListener('change', drawLanes);
 
     // ---------- Add lanes & history + suggestions ----------
