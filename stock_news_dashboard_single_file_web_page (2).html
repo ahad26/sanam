@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>S.A.N.A.M — Stock Analysis & News Aggregation Manager</title>
+  <!-- Tailwind via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Simple skeleton shimmer */
+    .skeleton { position: relative; overflow: hidden; }
+    .skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+      background: linear-gradient(90deg, transparent, rgba(0,0,0,.06), transparent); animation: shimmer 1.5s infinite; }
+    @keyframes shimmer { 100% { transform: translateX(100%);} }
+    .hide-scrollbar::-webkit-scrollbar { display:none; }
+    .hide-scrollbar { scrollbar-width: none; }
+    .dragging { opacity: .7; }
+    .drag-over { outline: 2px dashed #60a5fa; outline-offset: 2px; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen">
+  <header class="sticky top-0 z-30 bg-white/80 backdrop-blur shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-7 h-7 text-blue-600"><path d="M12 2a10 10 0 100 20 10 10 0 000-20zm1 14.59l3.3-3.3a1 1 0 10-1.4-1.42l-2.6 2.59-1.3-1.3a1 1 0 10-1.4 1.42l2 2a1 1 0 001.4 0z"/></svg>
+      <div class="leading-tight">
+              <h1 class="text-xl font-semibold">S.A.N.A.M</h1>
+              <p class="text-sm text-gray-500 -mt-0.5">Stock Analysis & News Aggregation Manager</p>
+            </div>
+      <div class="ml-auto flex items-center gap-2">
+        <label class="hidden sm:flex items-center gap-2 text-sm bg-gray-100 rounded-lg px-2 py-1">
+          <span>Auto‑refresh (s)</span>
+          <input id="autoRefreshSecInput" type="number" min="0" step="5" class="w-20 rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm bg-white" />
+        </label>
+        <label class="hidden md:flex items-center gap-2 text-sm bg-gray-100 rounded-lg px-2 py-1">
+          <input id="autoScrollToggle" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+          <span>Auto‑scroll</span>
+          <input id="scrollSpeedInput" type="number" min="10" max="300" step="10" class="w-20 rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm bg-white" title="px/sec" />
+          <span class="text-gray-500">px/s</span>
+        </label>
+        <button id="refreshBtn" class="px-3 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700">Refresh</button>
+        <button id="settingsBtn" class="px-3 py-2 text-sm rounded-lg bg-gray-100 hover:bg-gray-200">Settings</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Settings modal -->
+  <div id="settingsModal" class="hidden fixed inset-0 z-40 grid place-items-center bg-black/30 p-4">
+    <div class="w-full max-w-xl rounded-2xl bg-white shadow-xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold">Settings</h2>
+        <button id="closeSettings" class="p-2 hover:bg-gray-100 rounded-full" aria-label="Close settings">✕</button>
+      </div>
+      <div class="space-y-4">
+        <label class="block">
+          <span class="text-sm font-medium">Primary API Base URL (optional)</span>
+          <input id="apiBaseInput" type="url" class="mt-1 w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500" placeholder="http://localhost:8000" />
+          <p class="text-xs text-gray-500 mt-1">If set, the app tries <code>/tickers</code> and <code>/news</code> here first.</p>
+        </label>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="block">
+            <span class="text-sm font-medium">NewsAPI Key</span>
+            <input id="newsapiKeyInput" type="text" class="mt-1 w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500" placeholder="newsapi.org API key" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium">Finnhub Token</span>
+            <input id="finnhubKeyInput" type="text" class="mt-1 w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500" placeholder="finnhub.io token" />
+          </label>
+        </div>
+        <label class="block">
+          <span class="text-sm font-medium">Yahoo Finance RSS Proxy Base (optional)</span>
+          <input id="yahooProxyInput" type="url" class="mt-1 w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500" placeholder="https://your-proxy.example.com/fetch?url=" />
+          <p class="text-xs text-gray-500 mt-1">Needed due to CORS. Should forward <code>?url=</code> to the target and return raw XML.</p>
+        </label>
+        <label class="flex items-center gap-2">
+          <span class="text-sm">Auto‑refresh (s)</span>
+          <input id="autoRefreshSecInputModal" type="number" min="0" step="5" class="w-28 rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm bg-white" />
+        </label>
+        <div class="flex items-center gap-2">
+          <label class="text-sm">Auto‑scroll lanes</label>
+          <input id="autoScrollToggleModal" type="checkbox" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+          <label class="text-sm ml-3">Speed</label>
+          <input id="scrollSpeedInputModal" type="number" min="10" max="300" step="10" class="w-28 rounded-md border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm bg-white" />
+          <span class="text-xs text-gray-500">px/sec</span>
+        </div>
+      </div>
+      <div class="mt-6 flex justify-end gap-2">
+        <button id="saveSettings" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="max-w-7xl mx-auto px-4 py-6">
+    <!-- Global Filters -->
+    <section class="grid lg:grid-cols-4 gap-4 mb-6">
+      <div class="lg:col-span-2">
+        <label class="block text-sm font-medium">Add stock lane</label>
+        <div class="mt-1 flex gap-2 items-start">
+          <div class="relative">
+            <input id="addSymbolInput" class="w-40 rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500" placeholder="e.g., NVDA" autocomplete="off" />
+            <div id="addSymbolSuggest" class="absolute z-30 mt-1 w-56 bg-white border rounded-lg shadow hidden max-h-64 overflow-auto"></div>
+          </div>
+          <button id="addLaneBtn" class="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Add</button>
+          <select id="historySelect" class="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500">
+            <option value="">History…</option>
+          </select>
+        </div>
+        <p class="text-xs text-gray-500 mt-1">Keeps a dropdown history of previously added stocks.</p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium">From</label>
+        <input id="fromInput" type="date" class="mt-1 w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"/>
+      </div>
+      <div>
+        <label class="block text-sm font-medium">To</label>
+        <input id="toInput" type="date" class="mt-1 w-full rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500"/>
+      </div>
+    </section>
+
+    <div class="flex flex-wrap items-center gap-2 mb-6">
+      <button data-quick="30m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 30 minutes">30m</button>
+      <button data-quick="60m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 60 minutes">60m</button>
+      <button data-quick="3h" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 3 hours">3h</button>
+      <button data-quick="6h" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 6 hours">6h</button>
+      <button data-quick="12h" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 12 hours">12h</button>
+      <button data-quick="1d" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm" title="Past 1 day">1D</button>
+      <button data-quick="5d" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">5D</button>
+      <button data-quick="1m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">1M</button>
+      <button data-quick="3m" class="quick-btn px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm">3M</button>
+      <div class="ml-auto flex items-center gap-2">
+        <label class="text-sm">Sentiment</label>
+        <select id="sentimentFilter" class="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm">
+          <option value="any">Any</option>
+          <option value="pos">Positive</option>
+          <option value="neg">Negative</option>
+          <option value="neu">Neutral</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Lanes container -->
+    <section id="lanes" class="space-y-8"></section>
+    <div id="statusBar" class="hidden mt-6 text-sm"></div>
+  </main>
+
+  <footer class="max-w-7xl mx-auto px-4 py-8 text-xs text-gray-500">
+    <p>⚠️ Respect site terms and copyright. Store metadata + short extracts; link to originals.</p>
+  </footer>
+
+  <script>
+    const els = {
+      apiBaseInput: document.getElementById('apiBaseInput'),
+      settingsModal: document.getElementById('settingsModal'),
+      settingsBtn: document.getElementById('settingsBtn'),
+      closeSettings: document.getElementById('closeSettings'),
+      saveSettings: document.getElementById('saveSettings'),
+      refreshBtn: document.getElementById('refreshBtn'),
+      fromInput: document.getElementById('fromInput'),
+      toInput: document.getElementById('toInput'),
+      sentimentFilter: document.getElementById('sentimentFilter'),
+      statusBar: document.getElementById('statusBar'),
+      lanes: document.getElementById('lanes'),
+      addSymbolInput: document.getElementById('addSymbolInput'),
+      addLaneBtn: document.getElementById('addLaneBtn'),
+      historySelect: document.getElementById('historySelect'),
+      addSymbolSuggest: document.getElementById('addSymbolSuggest'),
+      autoRefreshSecInput: document.getElementById('autoRefreshSecInput'),
+      autoScrollToggle: document.getElementById('autoScrollToggle'),
+      scrollSpeedInput: document.getElementById('scrollSpeedInput'),
+      autoRefreshSecInputModal: document.getElementById('autoRefreshSecInputModal'),
+      autoScrollToggleModal: document.getElementById('autoScrollToggleModal'),
+      scrollSpeedInputModal: document.getElementById('scrollSpeedInputModal'),
+      newsapiKeyInput: document.getElementById('newsapiKeyInput'),
+      finnhubKeyInput: document.getElementById('finnhubKeyInput'),
+      yahooProxyInput: document.getElementById('yahooProxyInput'),
+    };
+
+    const state = {
+      apiBase: localStorage.getItem('apiBase') || 'http://localhost:8000',
+      demo: JSON.parse(localStorage.getItem('demo') || 'true'),
+      lanes: JSON.parse(localStorage.getItem('lanes') || '["AAPL","NVDA"]'),
+      history: JSON.parse(localStorage.getItem('symbolHistory') || '[]'),
+      autoRefreshSec: parseInt(localStorage.getItem('autoRefreshSec') || '60', 10),
+      autoScroll: JSON.parse(localStorage.getItem('autoScroll') || 'true'),
+      scrollPxPerSec: parseInt(localStorage.getItem('scrollPxPerSec') || '80', 10),
+      scrollers: {},
+      refreshTimer: null,
+      relativeWindowMs: null,
+    };
+
+    // defaults for optional keys
+    state.newsapiKey = localStorage.getItem('newsapiKey') || '';
+    state.finnhubKey = localStorage.getItem('finnhubKey') || '';
+    state.yahooProxy = localStorage.getItem('yahooProxy') || '';
+
+    // Global error surfacing so buttons don't seem dead
+    window.addEventListener('error', (e) => {
+      try {
+        const sb = document.getElementById('statusBar');
+        if (sb){
+          sb.textContent = 'Error: ' + (e.message || 'Script error');
+          sb.className='mt-6 text-sm px-3 py-2 rounded-lg bg-red-50 text-red-700';
+          sb.classList.remove('hidden');
+        }
+      } catch(_){}
+      console.error('Global error:', e.error || e.message);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      try {
+        const sb = document.getElementById('statusBar');
+        if (sb){
+          sb.textContent = 'Error: ' + (e.reason && (e.reason.message || String(e.reason)) || 'Promise rejected');
+          sb.className='mt-6 text-sm px-3 py-2 rounded-lg bg-red-50 text-red-700';
+          sb.classList.remove('hidden');
+        }
+      } catch(_){ }
+      console.error('Unhandled rejection:', e.reason);
+    });
+
+    // ---------- Utilities ----------
+    function formatDate(iso) { try { return new Date(iso).toLocaleString(); } catch { return iso; } }
+    function relTime(iso) {
+      const d = new Date(iso).getTime(); const s = Math.floor((Date.now() - d)/1000);
+      if (s < 60) return `${s}s ago`; const m = Math.floor(s/60); if (m < 60) return `${m}m ago`;
+      const h = Math.floor(m/60); if (h < 24) return `${h}h ago`; const dd = Math.floor(h/24); return `${dd}d ago`;
+    }
+    function sentimentBadge(v) {
+      if (v == null) return '<span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 text-xs">Unrated</span>';
+      if (v > 0.15) return '<span class="px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs">Positive</span>';
+      if (v < -0.15) return '<span class="px-2 py-0.5 rounded-full bg-red-100 text-red-800 text-xs">Negative</span>';
+      return '<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 text-xs">Neutral</span>';
+    }
+    function withinRange(iso, from, to) {
+      const t = new Date(iso).getTime();
+      if (isNaN(t)) return false;
+      if (from && t < new Date(from).setHours(0,0,0,0)) return false;
+      if (to && t > new Date(to).setHours(23,59,59,999)) return false;
+      return true;
+    }
+    function setStatus(text, type='info'){
+      const el = els.statusBar; el.textContent = text; el.className = '';
+      el.classList.add('mt-6','text-sm','px-3','py-2','rounded-lg');
+      if (type==='info') el.classList.add('bg-blue-50','text-blue-700');
+      if (type==='error') el.classList.add('bg-red-50','text-red-700');
+      if (type==='ok') el.classList.add('bg-green-50','text-green-700');
+      el.classList.remove('hidden');
+    }
+    function clearStatus(){ els.statusBar.classList.add('hidden'); }
+
+    function saveLanes(){ localStorage.setItem('lanes', JSON.stringify(state.lanes)); }
+    function saveHistory(){ localStorage.setItem('symbolHistory', JSON.stringify(state.history)); buildHistoryDropdown(); }
+    function pushHistory(symbol){ const sym = symbol.toUpperCase(); state.history = [sym, ...state.history.filter(s => s !== sym)]; if (state.history.length > 15) state.history = state.history.slice(0,15); saveHistory(); }
+    function buildHistoryDropdown(){ els.historySelect.innerHTML = '<option value="">History…</option>' + state.history.map(s=>`<option value="${s}">${s}</option>`).join(''); }
+
+    function debounce(fn, ms){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); }; }
+
+    function yyyymmdd(d){ const z=(n)=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}`; }
+
+    // Render a suggestion dropdown list and wire clicks
+    function renderSuggestList(el, items, onPick){
+      if (!Array.isArray(items) || !items.length){ el.classList.add('hidden'); el.innerHTML=''; return; }
+      el.innerHTML = items.map(i => `<button type="button" data-symbol="${i.symbol}" class="w-full text-left px-3 py-2 hover:bg-gray-50">` +
+        `<span class="font-medium mr-2">${i.symbol}</span><span class="text-gray-500">${i.name || ''}</span></button>`).join('');
+      el.classList.remove('hidden');
+      el.querySelectorAll('button[data-symbol]').forEach(btn => {
+        btn.addEventListener('click', () => { onPick(btn.dataset.symbol); el.classList.add('hidden'); });
+      });
+    }
+
+    // ---------- Provider helpers ----------
+    async function resolveCompanyName(symbol){
+      // Try backend /tickers for a name; fallback to symbol itself
+      if (!state.apiBase) return symbol;
+      try{
+        const r = await fetch(`${state.apiBase}/tickers?q=${encodeURIComponent(symbol)}`);
+        if (!r.ok) throw new Error('tickers query failed');
+        const data = await r.json();
+        const exact = data.find(t => (t.symbol||'').toUpperCase() === symbol.toUpperCase());
+        return (exact && exact.name) || (data[0] && data[0].name) || symbol;
+      }catch{ return symbol; }
+    }
+
+    function normalize(items){
+      return items.map(x=>({
+        title: x.title, url: x.url, published_at: x.published_at, source: x.source, summary: x.summary || '', sentiment: x.sentiment ?? null
+      }));
+    }
+
+    async function fetchFromBackend(symbol){
+      if (!state.apiBase) throw new Error('No API base configured');
+      const url = new URL(`${state.apiBase}/news`); url.searchParams.set('symbol', symbol); url.searchParams.set('limit','100');
+      const r = await fetch(url); if (!r.ok) throw new Error(`Backend error ${r.status}`);
+      const data = await r.json();
+      return normalize(data.map(a=>({
+        title: a.title, url: a.url, published_at: a.published_at, source: a.source, summary: a.summary, sentiment: a.sentiment
+      })));
+    }
+
+    async function fetchFromNewsAPI(symbol, from, to){
+      if (!state.newsapiKey) throw new Error('No NewsAPI key');
+      const name = await resolveCompanyName(symbol);
+      const q = `${symbol} OR \"${name}\"`;
+      const url = new URL('https://newsapi.org/v2/everything');
+      url.searchParams.set('q', q);
+      url.searchParams.set('language','en');
+      url.searchParams.set('sortBy','publishedAt');
+      url.searchParams.set('pageSize','50');
+      if (from) url.searchParams.set('from', from.toISOString());
+      if (to) url.searchParams.set('to', to.toISOString());
+      url.searchParams.set('apiKey', state.newsapiKey);
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`NewsAPI error ${r.status}`);
+      const data = await r.json();
+      const items = (data.articles||[]).map(a=>({
+        title: a.title,
+        url: a.url,
+        published_at: a.publishedAt,
+        source: a.source && a.source.name,
+        summary: a.description || ''
+      }));
+      return normalize(items);
+    }
+
+    async function fetchFromFinnhub(symbol, from, to){
+      if (!state.finnhubKey) throw new Error('No Finnhub token');
+      const url = new URL('https://finnhub.io/api/v1/company-news');
+      url.searchParams.set('symbol', symbol);
+      // Finnhub requires YYYY-MM-DD
+      const f = from ? yyyymmdd(from) : yyyymmdd(new Date(Date.now()-7*86400e3));
+      const t = to ? yyyymmdd(to) : yyyymmdd(new Date());
+      url.searchParams.set('from', f);
+      url.searchParams.set('to', t);
+      url.searchParams.set('token', state.finnhubKey);
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`Finnhub error ${r.status}`);
+      const data = await r.json();
+      const items = (data||[]).map(a=>({
+        title: a.headline,
+        url: a.url,
+        published_at: a.datetime ? new Date(a.datetime*1000).toISOString() : null,
+        source: a.source,
+        summary: a.summary || ''
+      }));
+      return normalize(items);
+    }
+
+    async function fetchFromYahoo(symbol){
+      if (!state.yahooProxy) throw new Error('No Yahoo proxy configured');
+      const rss = `https://feeds.finance.yahoo.com/rss/2.0/headline?s=${encodeURIComponent(symbol)}&region=US&lang=en-US`;
+      const target = state.yahooProxy + encodeURIComponent(rss);
+      const r = await fetch(target);
+      if (!r.ok) throw new Error(`Yahoo proxy error ${r.status}`);
+      const text = await r.text();
+      const doc = new DOMParser().parseFromString(text, 'text/xml');
+      const items = Array.from(doc.querySelectorAll('item')).map(it=>({
+        title: it.querySelector('title')?.textContent || '',
+        url: it.querySelector('link')?.textContent || '',
+        published_at: (it.querySelector('pubDate')?.textContent ? new Date(it.querySelector('pubDate').textContent).toISOString() : null),
+        source: 'Yahoo Finance',
+        summary: it.querySelector('description')?.textContent || ''
+      }));
+      return normalize(items);
+    }
+
+    async function fetchTickerSuggestions(q){
+      q = (q||'').trim(); if (!q) return [];
+      // Try backend first
+      if (state.apiBase){
+        try{
+          const r = await fetch(`${state.apiBase}/tickers?q=${encodeURIComponent(q)}`);
+          if (r.ok){ const data = await r.json(); if (data && data.length){ return data.map(t=>({symbol:t.symbol, name:t.name})).slice(0,12);} }
+        }catch{}
+      }
+      // Fallback to Finnhub symbol search
+      if (state.finnhubKey){
+        try{
+          const url = new URL('https://finnhub.io/api/v1/search');
+          url.searchParams.set('q', q); url.searchParams.set('token', state.finnhubKey);
+          const r = await fetch(url); if (r.ok){ const d = await r.json();
+            const list = (d.result||[]).filter(x=>x.symbol && x.description).map(x=>({symbol:x.symbol, name:x.description}));
+            if (list.length) return list.slice(0,12);
+          }
+        }catch{}
+      }
+      return [];
+    }
+
+    // ---------- Fetch & merge with fallbacks ----------
+    async function fetchNews(symbol){
+      const from = els.fromInput.value ? new Date(els.fromInput.value) : null;
+      const to = els.toInput.value ? new Date(els.toInput.value) : null;
+      const providers = [];
+      if (state.apiBase) providers.push(() => fetchFromBackend(symbol));
+      if (state.newsapiKey) providers.push(() => fetchFromNewsAPI(symbol, from, to));
+      if (state.finnhubKey) providers.push(() => fetchFromFinnhub(symbol, from, to));
+      if (state.yahooProxy) providers.push(() => fetchFromYahoo(symbol));
+
+      let lastErr = null;
+      for (const p of providers){
+        try{
+          const items = await p();
+          // client-side filters
+          let filtered = items.filter(d => !from || !d.published_at || withinRange(d.published_at, from, to));
+          const f = els.sentimentFilter.value; if (f !== 'any'){
+            filtered = filtered.filter(x => {
+              if (x.sentiment == null) return false;
+              if (f==='pos') return x.sentiment > 0.15;
+              if (f==='neg') return x.sentiment < -0.15;
+              if (f==='neu') return x.sentiment >= -0.15 && x.sentiment <= 0.15;
+            });
+          }
+          if (filtered.length) return filtered.sort((a,b)=> new Date(b.published_at||0) - new Date(a.published_at||0));
+        }catch(err){ lastErr = err; }
+      }
+      if (lastErr) throw lastErr; else return [];
+    }
+
+    // ---------- Lane rendering ----------
+    function laneTemplate(symbol, idx){
+      const id = `lane-${idx}`;
+      return `
+        <section id="${id}" class="bg-white border rounded-2xl" draggable="true" data-index="${idx}">
+          <div class="flex items-center gap-2 p-4 border-b cursor-grab">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="text-base font-semibold"><span class="text-gray-500">$</span><span id="${id}-label">${symbol}</span></h3>
+              <div class="relative">
+                <input id="${id}-input" value="${symbol}" class="w-28 rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm" aria-label="Change symbol" autocomplete="off" />
+                <div id="${id}-suggest" class="absolute z-20 mt-1 w-56 bg-white border rounded-lg shadow hidden max-h-64 overflow-auto"></div>
+              </div>
+              <select id="${id}-history" class="rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500 text-sm"><option value="">History…</option></select>
+              <button id="${id}-apply" class="px-2.5 py-1.5 rounded-lg bg-blue-600 text-white text-sm">Apply</button>
+            </div>
+            <div class="ml-auto flex items-center gap-2">
+              <button id="${id}-left" class="px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200" title="Scroll left">◂</button>
+              <button id="${id}-right" class="px-2 py-1 rounded-lg bg-gray-100 hover:bg-gray-200" title="Scroll right">▸</button>
+              <button id="${id}-remove" class="px-2 py-1 rounded-lg bg-red-50 text-red-700 hover:bg-red-100" title="Remove lane">Remove</button>
+            </div>
+          </div>
+          <div id="${id}-row" class="overflow-x-auto hide-scrollbar">
+            <div class="flex gap-3 p-4 min-h-[120px]" id="${id}-cards"></div>
+          </div>
+        </section>`;
+    }
+
+    function renderArticleCard(a){
+      const dateStr = a.published_at ? `${formatDate(a.published_at)} · ${relTime(a.published_at)}` : '—';
+      let cardTone = 'bg-white border-gray-200';
+      if (a.sentiment != null){
+        if (a.sentiment > 0.15) cardTone = 'bg-green-50 border-green-200';
+        else if (a.sentiment < -0.15) cardTone = 'bg-red-50 border-red-200';
+        else cardTone = 'bg-blue-50 border-blue-200';
+      }
+      return `
+        <article class="inline-block align-top min-w-[320px] max-w-[380px] rounded-xl border ${cardTone} p-4 shadow-sm">
+          <a href="${a.url}" target="_blank" rel="noopener noreferrer" class="text-base font-semibold text-blue-700 hover:underline">${a.title}</a>
+          <div class="mt-1 text-xs text-gray-500">${a.source || '—'} · ${dateStr}</div>
+          <div class="mt-2">${sentimentBadge(a.sentiment)}</div>
+          <p class="mt-2 text-sm text-gray-700 line-clamp-4">${a.summary || ''}</p>
+        </article>`;
+    }
+
+    function renderSkeletonCards(container, n=6){
+      container.innerHTML = '';
+      for (let i=0;i<n;i++){
+        const div = document.createElement('div');
+        div.className = 'inline-block align-top min-w-[320px] max-w-[380px] rounded-xl border bg-white p-4 skeleton';
+        div.innerHTML = `
+          <div class='h-5 w-2/3 bg-gray-200 rounded'></div>
+          <div class='h-4 w-1/3 bg-gray-200 rounded mt-2'></div>
+          <div class='h-4 w-full bg-gray-200 rounded mt-3'></div>
+          <div class='h-4 w-5/6 bg-gray-200 rounded mt-2'></div>`;
+        container.appendChild(div);
+      }
+    }
+
+    async function loadLane(symbol, idx){
+      const cards = document.getElementById(`lane-${idx}-cards`);
+      renderSkeletonCards(cards);
+      try{
+        const items = await fetchNews(symbol);
+        cards.innerHTML = items.map(renderArticleCard).join('');
+        setStatus(`Loaded ${items.length} article(s) for ${symbol}.`, 'ok');
+      }catch(err){
+        cards.innerHTML = `<div class='text-sm text-red-700 bg-red-50 p-3 rounded-lg'>Failed to fetch news for ${symbol}: ${err.message}</div>`;
+        setStatus(`Fetch failed for ${symbol}: ${err.message}`, 'error');
+      }
+    }
+
+    function attachLaneHandlers(symbol, idx){
+      // history in per-lane dropdown
+      const histEl = document.getElementById(`lane-${idx}-history`);
+      histEl.innerHTML = '<option value="">History…</option>' + state.history.map(s=>`<option value="${s}">${s}</option>`).join('');
+      histEl.addEventListener('change', (e)=>{ const val = e.target.value; if (!val) return; document.getElementById(`lane-${idx}-input`).value = val; });
+
+      // backend/Finnhub-powered suggestions per lane
+      const inputEl = document.getElementById(`lane-${idx}-input`);
+      const suggEl = document.getElementById(`lane-${idx}-suggest`);
+      const doSuggest = debounce(async ()=>{
+        const q = inputEl.value.trim(); if (!q) { suggEl.classList.add('hidden'); return; }
+        const items = await fetchTickerSuggestions(q);
+        renderSuggestList(suggEl, items, (sym)=>{ inputEl.value = sym; });
+      }, 200);
+      inputEl.addEventListener('input', doSuggest);
+      inputEl.addEventListener('focus', doSuggest);
+      document.addEventListener('click', (e)=>{ if (!suggEl.contains(e.target) && e.target !== inputEl) suggEl.classList.add('hidden'); });
+
+      document.getElementById(`lane-${idx}-apply`).addEventListener('click', ()=>{
+        const val = inputEl.value.trim().toUpperCase();
+        if (!val) return;
+        state.lanes[idx] = val; saveLanes();
+        document.getElementById(`lane-${idx}-label`).textContent = val;
+        pushHistory(val);
+        loadLane(val, idx);
+      });
+      document.getElementById(`lane-${idx}-remove`).addEventListener('click', ()=>{ state.lanes.splice(idx,1); saveLanes(); drawLanes(); });
+
+      const row = document.getElementById(`lane-${idx}-row`);
+      document.getElementById(`lane-${idx}-left`).addEventListener('click', ()=>{ row.scrollBy({left: -360, behavior:'smooth'}); });
+      document.getElementById(`lane-${idx}-right`).addEventListener('click', ()=>{ row.scrollBy({left: 360, behavior:'smooth'}); });
+
+      // start/refresh auto scroller for this lane
+      initAutoScroller(idx);
+
+      // drag & drop reordering
+      const laneEl = document.getElementById(`lane-${idx}`);
+      laneEl.addEventListener('dragstart', (e)=>{ laneEl.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(idx)); });
+      laneEl.addEventListener('dragend', ()=> laneEl.classList.remove('dragging'));
+      laneEl.addEventListener('dragover', (e)=>{ e.preventDefault(); laneEl.classList.add('drag-over'); e.dataTransfer.dropEffect = 'move'; });
+      laneEl.addEventListener('dragleave', ()=> laneEl.classList.remove('drag-over'));
+      laneEl.addEventListener('drop', (e)=>{
+        e.preventDefault(); laneEl.classList.remove('drag-over');
+        const from = parseInt(e.dataTransfer.getData('text/plain'), 10); const to = idx;
+        if (isNaN(from) || from === to) return;
+        const item = state.lanes.splice(from,1)[0]; state.lanes.splice(to,0,item);
+        saveLanes(); drawLanes();
+      });
+    }
+
+    function drawLanes(){
+      // stop any running scrollers
+      Object.values(state.scrollers).forEach(id=> cancelAnimationFrame(id));
+      state.scrollers = {};
+
+      els.lanes.innerHTML = state.lanes.map((sym, i)=>laneTemplate(sym, i)).join('');
+      state.lanes.forEach((sym, i)=>{ attachLaneHandlers(sym, i); loadLane(sym, i); });
+    }
+
+    // ---------- Auto scrollers ----------
+    function initAutoScroller(idx){
+      const row = document.getElementById(`lane-${idx}-row`);
+      let last = 0;
+      function step(ts){
+        if (!state.autoScroll){ state.scrollers[idx] = requestAnimationFrame(step); return; }
+        if (!last) last = ts; const dt = (ts - last)/1000; last = ts;
+        // pause on hover
+        if (row.matches(':hover')) { state.scrollers[idx] = requestAnimationFrame(step); return; }
+        const inc = state.scrollPxPerSec * dt;
+        row.scrollLeft += inc;
+        if (row.scrollLeft + row.clientWidth + 1 >= row.scrollWidth) { row.scrollLeft = 0; }
+        state.scrollers[idx] = requestAnimationFrame(step);
+      }
+      state.scrollers[idx] = requestAnimationFrame(step);
+    }
+
+    // ---------- Auto refresh ----------
+    function applyAutoRefresh(sec){
+      if (state.refreshTimer) { clearInterval(state.refreshTimer); state.refreshTimer = null; }
+      if (!sec || sec <= 0) return;
+      state.refreshTimer = setInterval(()=> { drawLanes(); }, sec * 1000);
+    }
+
+    // ---------- Settings Modal ----------
+    function openSettings() {
+      els.apiBaseInput.value = state.apiBase; els.settingsModal.classList.remove('hidden');
+      els.autoRefreshSecInputModal.value = state.autoRefreshSec; els.autoScrollToggleModal.checked = state.autoScroll; els.scrollSpeedInputModal.value = state.scrollPxPerSec;
+      els.newsapiKeyInput.value = state.newsapiKey; els.finnhubKeyInput.value = state.finnhubKey; els.yahooProxyInput.value = state.yahooProxy;
+    }
+    function closeSettings() { els.settingsModal.classList.add('hidden'); }
+    document.getElementById('settingsBtn').addEventListener('click', openSettings);
+    document.getElementById('closeSettings').addEventListener('click', closeSettings);
+    document.getElementById('saveSettings').addEventListener('click', () => {
+      state.apiBase = els.apiBaseInput.value || '';
+      state.autoRefreshSec = parseInt(els.autoRefreshSecInputModal.value || '0',10);
+      state.autoScroll = !!els.autoScrollToggleModal.checked;
+      state.scrollPxPerSec = parseInt(els.scrollSpeedInputModal.value || '80',10);
+      state.newsapiKey = els.newsapiKeyInput.value.trim();
+      state.finnhubKey = els.finnhubKeyInput.value.trim();
+      state.yahooProxy = els.yahooProxyInput.value.trim();
+      // persist
+      localStorage.setItem('apiBase', state.apiBase);
+      localStorage.setItem('autoRefreshSec', String(state.autoRefreshSec));
+      localStorage.setItem('autoScroll', JSON.stringify(state.autoScroll));
+      localStorage.setItem('scrollPxPerSec', String(state.scrollPxPerSec));
+      localStorage.setItem('newsapiKey', state.newsapiKey);
+      localStorage.setItem('finnhubKey', state.finnhubKey);
+      localStorage.setItem('yahooProxy', state.yahooProxy);
+      // reflect in header controls
+      els.autoRefreshSecInput.value = state.autoRefreshSec;
+      els.autoScrollToggle.checked = state.autoScroll;
+      els.scrollSpeedInput.value = state.scrollPxPerSec;
+      closeSettings();
+      applyAutoRefresh(state.autoRefreshSec);
+      drawLanes();
+    });
+
+    // ---------- Quick date pills / global filters ----------
+    document.querySelectorAll('.quick-btn').forEach(btn => btn.addEventListener('click', () => {
+      const now = new Date();
+      let start = new Date(now);
+      const span = btn.dataset.quick;
+      if (span.endsWith('m')){
+        const mins = parseInt(span, 10) || 0; start.setMinutes(now.getMinutes() - mins);
+      } else if (span.endsWith('h')){
+        const hrs = parseInt(span, 10) || 0; start.setHours(now.getHours() - hrs);
+      } else if (span === '1d'){
+        start.setDate(now.getDate() - 1);
+      } else if (span === '5d'){
+        start.setDate(now.getDate() - 5);
+      } else if (span === '1m'){
+        start.setMonth(now.getMonth() - 1);
+      } else if (span === '3m'){
+        start.setMonth(now.getMonth() - 3);
+      }
+      els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+      // ensure date-range mode
+      if (typeof state !== 'undefined') state.relativeWindowMs = null;
+      drawLanes();
+    }));
+    els.fromInput.addEventListener('change', ()=>{ state.relativeWindowMs = null; drawLanes(); });
+    els.toInput.addEventListener('change', ()=>{ state.relativeWindowMs = null; drawLanes(); });
+    els.sentimentFilter.addEventListener('change', drawLanes);
+
+    // ---------- Add lanes & history + suggestions ----------
+    function addLaneFrom(symbol){
+      const sym = (symbol || els.addSymbolInput.value || '').toUpperCase().trim(); if (!sym) return;
+      if (!state.lanes.includes(sym)){ state.lanes.push(sym); saveLanes(); }
+      pushHistory(sym); els.addSymbolInput.value = ''; drawLanes();
+    }
+    els.addLaneBtn.addEventListener('click', ()=> addLaneFrom());
+    els.addSymbolInput.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); addLaneFrom(); } });
+
+    const suggestGlobal = debounce(async ()=>{
+      const q = els.addSymbolInput.value.trim(); if (!q){ els.addSymbolSuggest.classList.add('hidden'); return; }
+      const items = await fetchTickerSuggestions(q); renderSuggestList(els.addSymbolSuggest, items, (sym)=>{ els.addSymbolInput.value = sym; els.addSymbolSuggest.classList.add('hidden'); });
+    }, 200);
+    els.addSymbolInput.addEventListener('input', suggestGlobal);
+    els.addSymbolInput.addEventListener('focus', suggestGlobal);
+    document.addEventListener('click', (e)=>{ if (!els.addSymbolSuggest.contains(e.target) && e.target !== els.addSymbolInput) els.addSymbolSuggest.classList.add('hidden'); });
+
+    els.historySelect.addEventListener('change', (e)=>{ if (e.target.value) addLaneFrom(e.target.value); });
+
+    // ---------- Init ----------
+    (function init(){
+      els.apiBaseInput.value = state.apiBase;
+      els.autoRefreshSecInput.value = state.autoRefreshSec; els.autoScrollToggle.checked = state.autoScroll; els.scrollSpeedInput.value = state.scrollPxPerSec;
+      // Default range: last 5 days
+      const now = new Date(); const start = new Date(); start.setDate(now.getDate()-5);
+      els.fromInput.valueAsDate = start; els.toInput.valueAsDate = now;
+      buildHistoryDropdown();
+      applyAutoRefresh(state.autoRefreshSec);
+      drawLanes();
+    })();
+
+    document.getElementById('refreshBtn').addEventListener('click', drawLanes);
+
+    // sync header controls live
+    els.autoRefreshSecInput.addEventListener('change', ()=>{ state.autoRefreshSec = parseInt(els.autoRefreshSecInput.value || '0',10); localStorage.setItem('autoRefreshSec', String(state.autoRefreshSec)); applyAutoRefresh(state.autoRefreshSec); });
+    els.autoScrollToggle.addEventListener('change', ()=>{ state.autoScroll = !!els.autoScrollToggle.checked; localStorage.setItem('autoScroll', JSON.stringify(state.autoScroll)); });
+    els.scrollSpeedInput.addEventListener('change', ()=>{ state.scrollPxPerSec = parseInt(els.scrollSpeedInput.value || '80',10); localStorage.setItem('scrollPxPerSec', String(state.scrollPxPerSec)); });
+  </script>
+</body>
+</html>
